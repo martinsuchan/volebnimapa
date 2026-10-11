@@ -4,6 +4,9 @@ Statická webová stránka s mapou volebních okrsků **všech 57 městských č
 mapou (Leaflet + dlaždice ČÚZK) jsou poloprůhledně vykreslené hranice okrsků obarvené podle podílu hlasů vybrané
 kandidátky.
 
+Tato mapa je momentálně dostupná na této adrese:
+https://volebnimapa.suchan.cz/
+
 Podkladové mapy jsou ze služeb ČÚZK (Základní topografická mapa a ortofoto). Jsou zdarma, bez API klíče,
 licence CC BY 4.0 (uvádí se „© ČÚZK“). Dlaždice OpenStreetMap se záměrně nepoužívají: servery OSM
 blokují požadavky bez hlavičky Referer (stránka otevřená z disku) a nejsou určené pro větší provoz.
