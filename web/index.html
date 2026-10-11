@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Volební mapa Prahy</title>
+  <meta name="description" content="Výsledky voleb v Praze po volebních okrscích pro všechny městské části: Poslanecká sněmovna 2017–2025, zastupitelstvo hl. m. Prahy a zastupitelstva MČ 2018–2026.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23034EA2'/%3E%3Cpath d='M7 9h18v14H7z' fill='none' stroke='white' stroke-width='2.4'/%3E%3Cpath d='M12 9v14M7 15h18' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Volební mapa Prahy</h1>
+      <span class="sub">výsledky po volebních okrscích</span>
+    </div>
+    <div class="controls" role="group" aria-label="Výběr území, voleb a strany">
+      <div class="ctl ctl-region">
+        <span id="lbl-region">Území</span>
+        <div class="region-row">
+          <select id="sel-region" aria-labelledby="lbl-region"></select>
+          <button id="btn-region" type="button" class="iconbtn" title="Vybrat městskou část na mapě">Mapa MČ</button>
+        </div>
+      </div>
+      <label class="ctl ctl-type">
+        <span>Typ voleb</span>
+        <select id="sel-type"></select>
+      </label>
+      <div class="ctl ctl-year">
+        <span id="lbl-year">Rok</span>
+        <div id="years" class="seg" role="radiogroup" aria-labelledby="lbl-year"></div>
+      </div>
+      <label class="ctl ctl-party">
+        <span>Kandidující strana (seřazeno podle zisku ve zvoleném území)</span>
+        <select id="sel-party"></select>
+      </label>
+      <label class="ctl ctl-mode">
+        <span>Zobrazit</span>
+        <select id="sel-mode">
+          <option value="podil">Podíl hlasů</option>
+          <option value="zmena">Změnu oproti…</option>
+        </select>
+      </label>
+      <label class="ctl ctl-wide" id="ctl-cmp" hidden>
+        <span>Srovnat s</span>
+        <select id="sel-cmp"></select>
+      </label>
+      <label class="ctl ctl-wide" id="ctl-scale">
+        <span>Škála barev</span>
+        <select id="sel-scale">
+          <option value="shared">Společná pro stranu v čase</option>
+          <option value="local">Podle této volby</option>
+          <option value="fixed">Pevná 0–50 %</option>
+        </select>
+      </label>
+    </div>
+    <button id="btn-info" class="iconbtn" type="button" aria-haspopup="dialog" title="O datech a metodice">O datech</button>
+  </header>
+
+  <main class="layout">
+    <div id="map" aria-label="Mapa volebních okrsků"></div>
+    <div id="loading" class="loading" hidden><span>Načítám data…</span></div>
+    <div class="panel-resizer" id="panel-resizer" role="separator" aria-orientation="vertical" aria-label="Šířka panelu (táhněte, dvojklik = výchozí)" tabindex="0" title="Táhnutím změníte šířku panelu, dvojklikem vrátíte výchozí"></div>
+    <aside class="panel" id="panel">
+      <button class="panel-toggle" id="panel-toggle" type="button" aria-expanded="true">Detail</button>
+      <div class="panel-body">
+        <section id="sec-election" class="card"></section>
+        <section id="sec-seats" class="card"></section>
+        <section id="sec-live" class="card live" hidden></section>
+        <section id="sec-party" class="card"></section>
+        <section id="sec-trend" class="card"></section>
+        <section id="sec-precinct" class="card"></section>
+        <section id="sec-results" class="card"></section>
+        <section class="card tools">
+          <label class="opacity">Průhlednost výplně
+            <input id="rng-opacity" type="range" min="0.2" max="1" step="0.05" value="0.72">
+          </label>
+          <label class="chk"><input id="chk-labels" type="checkbox" checked> Čísla okrsků</label>
+          <button id="btn-csv" type="button" class="linkbtn">Stáhnout výsledky po okrscích (CSV)</button>
+        </section>
+      </div>
+    </aside>
+  </main>
+
+  <dialog id="dlg-region" aria-labelledby="dlg-region-title">
+    <button type="button" id="btn-region-close" class="dlg-x" aria-label="Zavřít">✕</button>
+    <h2 id="dlg-region-title">Vyberte městskou část</h2>
+    <p class="muted">Klikněte do mapy nebo vyberte ze seznamu. Volba se zapamatuje, později ji změníte přepínačem „Území“ nahoře.</p>
+    <div class="picker">
+      <div id="picker-map" aria-label="Mapa městských částí Prahy"></div>
+      <div class="picker-side">
+        <input id="region-search" type="search" placeholder="Hledat MČ (např. 6, Suchdol…)" aria-label="Hledat městskou část">
+        <div id="region-list" class="region-list"></div>
+        <button id="btn-region-all" type="button" class="iconbtn">Celá Praha (Sněmovna a zastupitelstvo hl. m. Prahy)</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-info" aria-labelledby="dlg-title">
+    <form method="dialog" class="dlg-close"><button aria-label="Zavřít">✕</button></form>
+    <h2 id="dlg-title">O datech a metodice</h2>
+    <div id="dlg-body"></div>
+  </dialog>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="data/praha.js"></script>
+  <script src="js/data.js"></script>
+  <!-- Živé výsledky (vypnuto po sečtení KV 2026): <script src="js/live.js"></script> -->
+  <script src="js/app.js"></script>
+  <script src="js/boot.js"></script>
+</body>
+</html>
