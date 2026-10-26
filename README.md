@@ -52,6 +52,9 @@ Mimo složku `web/` jsou jen pracovní věci: `scripts/` (stažení a zpracován
   Pro „Celou Prahu“ jsou k dispozici Sněmovna a zastupitelstvo hl. m. Prahy, pro MČ navíc zastupitelstvo dané MČ.
 - **Typ voleb / Rok / Kandidující strana**: strany jsou seřazené podle zisku ve zvoleném území.
   Při změně roku nebo typu voleb mapa zůstane na „stejné“ straně (dohledá kandidátku se stejnou členskou stranou).
+- **Vítěz v okrsku (přehled)**: první položka výběru strany. Okrsek má barvu kandidátky s nejvíce hlasy, při shodě
+  šedou. Legenda a panel ukazují počet vyhraných okrsků (oblast změn se počítá jednou), kliknutím na stranu se
+  zobrazí její podíl hlasů. Režim zůstává při změně roku, typu voleb i území (`strana=vitez` v URL).
 - **Zobrazit: Podíl hlasů / Změnu oproti…**: mapa změny v procentních bodech proti jiným volbám.
 - **Škála barev**: společná pro stranu v čase (výchozí, mapy různých let jsou přímo srovnatelné), podle této volby,
   nebo pevná 0–50 %.

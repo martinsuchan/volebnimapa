@@ -108,6 +108,8 @@ body.resizing #map { pointer-events: none; }
 .row .name { display: flex; gap: 6px; align-items: center; min-width: 0; font-size: 13px; }
 .row .name span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .val { text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 600; }
+.row.wide { grid-template-columns: minmax(0, 1fr) auto; }
+.row.wide .val { white-space: nowrap; }
 .row .bar { grid-column: 1 / -1; height: 5px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
 .row .bar i { display: block; height: 100%; border-radius: 0 3px 3px 0; }
 .row .meta { grid-column: 1 / -1; font-size: 11.5px; color: var(--ink-3); }
@@ -202,6 +204,13 @@ body.resizing #map { pointer-events: none; }
 .legend .ticks { display: flex; justify-content: space-between; color: var(--ink-3); margin-top: 3px; font-variant-numeric: tabular-nums; }
 .legend .nodata { display: flex; gap: 6px; align-items: center; margin-top: 6px; color: var(--ink-3); }
 .legend .nodata i { width: 14px; height: 10px; border: 1px dashed var(--ink-3); border-radius: 2px; }
+/* přehled vítězů v okrscích */
+.legend .wins { display: flex; flex-direction: column; gap: 1px; max-height: 40vh; overflow-y: auto; }
+.legend .win { display: flex; align-items: center; gap: 6px; width: 100%; font: inherit; color: inherit; background: none; border: 0; border-radius: 4px; padding: 2px 4px; text-align: left; }
+.legend button.win { cursor: pointer; }
+.legend button.win:hover { background: var(--surface-2); }
+.legend .win .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend .win b { font-variant-numeric: tabular-nums; }
 
 /* live */
 .live { border-color: color-mix(in srgb, var(--live) 45%, var(--line)); }

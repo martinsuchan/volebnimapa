@@ -222,9 +222,43 @@ window.startApp = function (V2, R) {
   function electionLabel(e, short = false) {
     return short ? `${TYPE_SHORT[e.typ]} ${e.rok}` : e.nazev;
   }
+  /** Vítěz okrsku (nebo oblasti změn): {p, proc, naskok, remiza} – při shodě hlasů remiza = [strany]; bez dat null. */
+  function winnerOf(e, c) {
+    const r = e.okrsky[String(c)];
+    if (!r || !r.h) return null;
+    const ranked = e.strany.map((q) => [q, r.s[q.id] || 0]).filter((x) => x[1] > 0).sort((a, b) => b[1] - a[1]);
+    if (!ranked.length) return null;
+    const top = ranked.filter((x) => x[1] === ranked[0][1]).map((x) => x[0]);
+    return {
+      p: ranked[0][0], proc: (ranked[0][1] / r.h) * 100,
+      druhy: ranked[1] ? ranked[1][0] : null, naskok: ((ranked[0][1] - (ranked[1]?.[1] || 0)) / r.h) * 100,
+      remiza: top.length > 1 ? top : null,
+    };
+  }
+  /** Počet vyhraných okrsků (oblast změn = jedna jednotka) po stranách: {count: {pid: n}, remiz, jednotek, oblasti}. */
+  function winnerCounts(e) {
+    const seen = new Set(), count = {};
+    let remiz = 0, oblasti = false;
+    for (const c of PRECINCTS) {
+      const u = unitOf(e, c);
+      if (seen.has(u)) continue;
+      seen.add(u);
+      const w = winnerOf(e, c);
+      if (!w) continue;
+      if (zoneOf(e, c)) oblasti = true;
+      if (w.remiza) remiz++;
+      else count[w.p.id] = (count[w.p.id] || 0) + 1;
+    }
+    const jednotek = remiz + Object.values(count).reduce((a, n) => a + n, 0);
+    return { count, remiz, jednotek, oblasti };
+  }
 
   // ------------------------------------------------------------------ stav
-  const latestOf = (typ) => ELECTIONS.filter((e) => e.typ === typ).sort((a, b) => b.rok - a.rok)[0]?.id;
+  // Přehledový režim „Vítěz v okrsku“: místo strany je vybraná tato hodnota (v odkazu strana=vitez).
+  const WINNER = "vitez";
+  const TIE_COLOR = "#9a9a95";
+  const isWinner = () => state.pid === WINNER;
+  const latestOf = (typ) =>ELECTIONS.filter((e) => e.typ === typ).sort((a, b) => b.rok - a.rok)[0]?.id;
   const state = {
     eid: latestOf("zmc") || latestOf("zhmp"), // výchozí: poslední komunální volby (u celé Prahy ZHMP)
     pid: null,
@@ -266,7 +300,7 @@ window.startApp = function (V2, R) {
 
   function ensureParty() {
     const e = cur();
-    if (!partyById(e, state.pid)) state.pid = sortedParties(e)[0]?.id || null;
+    if (!isWinner() && !partyById(e, state.pid)) state.pid = sortedParties(e)[0]?.id || null;
   }
   /** Zapamatuje si aktuální stranu jako výchozí bod pro přepínání mezi volbami. */
   function setAnchor() {
@@ -354,22 +388,45 @@ window.startApp = function (V2, R) {
   }, {}, { position: "topright" }).addTo(map);
   L.control.scale({ imperial: false, position: "bottomright" }).addTo(map);
 
+  // Bublina s výsledky okrsku pod myší: jediná, ovládaná ručně. Při posunu a zoomu mapy Leaflet nemusí
+  // poslat mouseout (okrsky se pod stojící myší jen překreslí), takže tooltipy vázané na okrsky zůstávaly
+  // viset. Během pohybu mapy se proto skryje a znovu se ukáže prvním pohybem myši.
+  const tip = L.tooltip({ className: "okrsek-tip", direction: "top", offset: [0, -8] });
+  let hovered = null, moving = false; // číslo okrsku pod myší
+  function clearHover() {
+    hovered = null;
+    hoverLayer.clearLayers();
+    map.closeTooltip(tip);
+  }
+  function hoverAt(c, latlng) {
+    if (moving) return;
+    if (hovered !== c) {
+      hovered = c;
+      hoverLayer.clearLayers();
+      const z = zoneOf(cur(), c); // u oblasti změn zvýraznit celou oblast
+      hoverLayer.addData(z ? { type: "Feature", properties: {}, geometry: z.obrys } : featureByPrecinct[c]);
+      tip.setContent(tooltipHtml(c));
+    }
+    tip.setLatLng(latlng);
+    if (!map.hasLayer(tip)) map.openTooltip(tip);
+  }
+  map.on("movestart zoomstart", () => { moving = true; clearHover(); });
+  map.on("moveend zoomend", () => { moving = false; });
+  map.getContainer().addEventListener("mouseleave", clearHover);
+
   let ramp = null, diverging = null, maxV = 10;
   const layerByPrecinct = {};
   const precinctLayer = L.geoJSON(GEO, {
     style: () => ({ weight: 0.8, color: "#ffffff", fillOpacity: 0 }),
     onEachFeature(f, layer) {
-      layerByPrecinct[f.properties.cislo] = layer;
+      const c = f.properties.cislo;
+      layerByPrecinct[c] = layer;
       layer.on({
-        mouseover: () => {
-          hoverLayer.clearLayers();
-          const z = zoneOf(cur(), f.properties.cislo); // u oblasti změn zvýraznit celou oblast
-          hoverLayer.addData(z ? { type: "Feature", properties: {}, geometry: z.obrys } : f);
-        },
-        mouseout: () => hoverLayer.clearLayers(),
-        click: () => selectPrecinct(f.properties.cislo === state.okrsek ? null : f.properties.cislo),
+        mouseover: (ev) => hoverAt(c, ev.latlng),
+        mousemove: (ev) => hoverAt(c, ev.latlng),
+        mouseout: () => { if (hovered === c) clearHover(); },
+        click: (ev) => { hoverAt(c, ev.latlng); selectPrecinct(c === state.okrsek ? null : c); }, // dotyk: klepnutí ukáže i bublinu
       });
-      layer.bindTooltip(() => tooltipHtml(f.properties.cislo), { sticky: true, className: "okrsek-tip", direction: "top", offset: [0, -8] });
     },
   }).addTo(map);
   const outline = L.geoJSON(GEO.praha6, { pane: "highlight", interactive: false, style: { weight: 2.2, color: "#4a4a46", fill: false, opacity: 0.9 } }).addTo(map);
@@ -398,12 +455,13 @@ window.startApp = function (V2, R) {
 
   function fillFor(v) {
     if (v == null) return null;
+    if (isWinner()) return v.remiza ? TIE_COLOR : v.p.barva; // v = winnerOf()
     if (state.mode === "zmena") return diverging(v / maxV);
     return ramp(v / maxV);
   }
   function styleOne(c) {
     const layer = layerByPrecinct[c];
-    const v = valueOf(c);
+    const v = isWinner() ? winnerOf(cur(), c) : valueOf(c);
     const fill = fillFor(v);
     const dark = isDark();
     // okrsky uvnitř oblasti změn nemají vnitřní hranice (oblast se čte jako jeden celek)
@@ -426,11 +484,9 @@ window.startApp = function (V2, R) {
     ramp = makeRamp(p ? p.barva : "#777777");
     diverging = makeDiverging();
     maxV = scaleMax();
-    for (const c of PRECINCTS) {
-      styleOne(c);
-      // otevřený tooltip (myš nad okrskem při změně voleb/strany) přepočítat s novými daty
-      if (layerByPrecinct[c].isTooltipOpen()) layerByPrecinct[c].getTooltip().update();
-    }
+    for (const c of PRECINCTS) styleOne(c);
+    // otevřenou bublinu (myš nad okrskem při změně voleb/strany) přepočítat s novými daty
+    if (hovered != null) tip.setContent(tooltipHtml(hovered));
     zoneLayer.clearLayers();
     const zoneSets = [cur()];
     if (state.mode === "zmena" && EL[state.cmp]) zoneSets.push(EL[state.cmp]);
@@ -451,12 +507,14 @@ window.startApp = function (V2, R) {
       : `<b>Okrsek ${c}</b>`;
     if (!r) return `${headHtml}<br><span class="muted">${e.live ? "zatím nezpracováno" : "bez dat"}</span>`;
     const turnout = r.z ? (r.v / r.z) * 100 : null;
-    // strany s alespoň 5 % ve zvoleném území v těchto volbách (+ vždy právě vybraná), seřazené podle zisku v okrsku
-    const list = e.strany.filter((q) => q.proc >= 5 || q.id === state.pid)
+    const w = isWinner() ? winnerOf(e, c) : null;
+    const hl = w ? (w.remiza || [w.p]).map((q) => q.id) : [state.pid]; // zvýrazněné řádky
+    // strany s alespoň 5 % ve zvoleném území v těchto volbách (+ vždy právě vybraná / vítěz), seřazené podle zisku v okrsku
+    const list = e.strany.filter((q) => q.proc >= 5 || hl.includes(q.id))
       .map((q) => ({ q, v: ((r.s[q.id] || 0) / r.h) * 100 }))
       .sort((a, b) => b.v - a.v);
     const top = Math.max(1, ...list.map((x) => x.v));
-    const rows = list.map(({ q, v }) => `<tr class="${q.id === state.pid ? "sel" : ""}">
+    const rows = list.map(({ q, v }) => `<tr class="${hl.includes(q.id) ? "sel" : ""}">
         <td><span class="swatch" style="background:${q.barva}"></span></td>
         <td class="nm">${esc(q.zkratka)}</td>
         <td class="bar"><i style="width:${Math.max(1, Math.round((v / top) * 80))}px;background:${q.barva}"></i></td>
@@ -464,6 +522,11 @@ window.startApp = function (V2, R) {
     let diff = "";
     if (p && state.mode === "zmena" && EL[state.cmp]) {
       diff = `<div class="tip-diff">${esc(p.zkratka)}: změna oproti ${electionLabel(EL[state.cmp], true)} <b>${fmtPct(valueOf(c), 2, true)} p. b.</b></div>`;
+    }
+    if (w) {
+      diff = w.remiza
+        ? `<div class="tip-diff">Shoda na 1. místě: <b>${w.remiza.map((q) => esc(q.zkratka)).join(", ")}</b></div>`
+        : `<div class="tip-diff">Vítěz: <b>${esc(w.p.zkratka)}</b>${w.druhy ? ` · náskok ${fmtPct(w.naskok)} p. b. před ${esc(w.druhy.zkratka)}` : ""}</div>`;
     }
     return `${headHtml}
       <table class="tip-parties">${rows}</table>${diff}
@@ -481,9 +544,26 @@ window.startApp = function (V2, R) {
     return div;
   };
   legendCtl.addTo(map);
+  $("legend").addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-pid]");
+    if (b) { state.pid = b.dataset.pid; setAnchor(); update(); }
+  });
   function renderLegend() {
     const el = $("legend");
     const p = curParty(), e = cur();
+    if (isWinner()) {
+      const { count, remiz, jednotek, oblasti } = winnerCounts(e);
+      const order = Object.keys(count).sort((a, b) => count[b] - count[a] || partyById(e, b).hlasy - partyById(e, a).hlasy);
+      const rows = order.map((pid) => {
+        const q = partyById(e, pid);
+        return `<button type="button" class="win" data-pid="${pid}" title="${esc(q.nazev)} – zobrazit podíl hlasů">
+          <span class="swatch" style="background:${q.barva}"></span><span class="nm">${esc(q.zkratka)}</span><b>${count[pid]}</b></button>`;
+      }).join("");
+      el.innerHTML = `<div class="title"><span>Vítěz v okrsku</span>
+          <span class="muted" style="font-weight:400">(${oblasti ? "okrsků a oblastí" : "okrsků"}: ${jednotek})</span></div>
+        <div class="wins">${rows}${remiz ? `<div class="win tie"><span class="swatch" style="background:${TIE_COLOR}"></span><span class="nm">shoda hlasů</span><b>${remiz}</b></div>` : ""}</div>`;
+      return;
+    }
     if (!p) { el.innerHTML = ""; return; }
     const steps = 24;
     let grad, ticks, title;
@@ -518,16 +598,18 @@ window.startApp = function (V2, R) {
 
     const parties = sortedParties(e);
     const showPct = hasData(e);
-    $("sel-party").innerHTML = parties.map((p) => {
+    $("sel-party").innerHTML = `<option value="${WINNER}"${isWinner() ? " selected" : ""}>Vítěz v okrsku (přehled)</option>` + parties.map((p) => {
       const label = showPct ? `${p.zkratka} — ${fmtPct(p.proc)} %` : `${p.cislo}. ${p.zkratka}`;
       return `<option value="${p.id}"${p.id === state.pid ? " selected" : ""}>${esc(label)}</option>`;
     }).join("");
 
+    // přehled vítězů nemá režim změny ani škálu
+    document.querySelector(".ctl-mode").hidden = isWinner();
     $("sel-mode").value = state.mode;
     const opts = compareOptions();
     $("sel-mode").querySelector('option[value="zmena"]').disabled = !opts.length || !hasData(e);
     $("ctl-cmp").hidden = state.mode !== "zmena";
-    $("ctl-scale").hidden = state.mode === "zmena";
+    $("ctl-scale").hidden = state.mode === "zmena" || isWinner();
     $("sel-cmp").innerHTML = opts.map(({ o, lists }) =>
       `<option value="${o.id}"${o.id === state.cmp ? " selected" : ""}>${esc(electionLabel(o, true))} – ${esc(lists.map((q) => q.zkratka).join(" + "))}</option>`).join("");
     $("sel-scale").value = state.scale;
@@ -538,7 +620,7 @@ window.startApp = function (V2, R) {
     state.eid = eid;
     const e = cur();
     // if (e.live) startLive(e); // živé výsledky (vypnuto)
-    if (keepParty && prev !== e) {
+    if (keepParty && prev !== e && !isWinner()) {
       // Dohledává se vždy od strany, kterou uživatel vybral (ne od mezikroku), takže
       // TOP 09 (2022) -> KLID (2018) -> zpět vrátí TOP 09, ne ODS+KDU.
       const anchor = state.anchor || (prevParty && { tagy: prevParty.tagy, nazev: prevParty.nazev });
@@ -654,6 +736,26 @@ window.startApp = function (V2, R) {
         <div class="small muted" style="margin-top:2px">${parts.join(" · ")}</div>
         ${best ? `<div class="small" style="margin-top:8px">Nejvíce: ${unitLink(best[0])} (${fmtPct(best[1], 1)} %) · nejméně: ${unitLink(worst[0])} (${fmtPct(worst[1], 1)} %)</div>` : ""}
         ${lp && lp.zvoleni.length ? `<div class="small" style="margin-top:8px"><b>Zvolení:</b> ${lp.zvoleni.map((z) => esc(z.j)).join(", ")}</div>` : ""}`;
+    } else if (isWinner() && hasData(e)) {
+      const { count, remiz, jednotek, oblasti } = winnerCounts(e);
+      const order = Object.keys(count).sort((a, b) => count[b] - count[a] || partyById(e, b).hlasy - partyById(e, a).hlasy);
+      const max = count[order[0]] || 1;
+      const unit = oblasti ? "okrsků a oblastí" : "okrsků";
+      const rows = order.map((pid) => {
+        const q = partyById(e, pid), n = count[pid];
+        const share = (n / jednotek) * 100;
+        return `<button type="button" class="row wide" data-pid="${pid}" title="${esc(q.nazev)} – zobrazit podíl hlasů">
+          <span class="name"><span class="swatch" style="background:${q.barva}"></span><span>${esc(q.zkratka)}</span></span>
+          <span class="val">${n} <span class="muted" style="font-weight:400">· ${share < 0.1 ? "&lt; 0,1" : fmtPct(share, 1)} %</span></span>
+          <span class="bar"><i style="width:${Math.max(0.5, (n / max) * 100)}%;background:${q.barva}"></i></span>
+        </button>`;
+      }).join("");
+      $("sec-party").innerHTML = `
+        <h2>Vítěz v okrsku</h2>
+        <div class="small muted">Barva okrsku = kandidátka s nejvíce hlasy. Počet vyhraných ${unit} ${esc(IN_REGION)} (celkem ${fmtInt(jednotek)}):</div>
+        <div class="rows" style="margin-top:8px">${rows}</div>
+        ${remiz ? `<div class="small muted" style="margin-top:6px"><span class="swatch" style="background:${TIE_COLOR}"></span> shoda hlasů na 1. místě: ${remiz}</div>` : ""}
+        <p class="muted small" style="margin:6px 0 0">Kliknutím na stranu zobrazíte její podíl hlasů.</p>`;
     } else {
       $("sec-party").innerHTML = "";
     }
@@ -1128,6 +1230,7 @@ window.startApp = function (V2, R) {
         <li><b>Komunální volby (ZHMP, ZMČ):</b> volič má tolik hlasů, kolik se volí zastupitelů; procento = hlasy kandidátky / všechny platné hlasy v okrsku (stejně počítá ČSÚ).</li>
         <li>Procenta jsou useknutá (ne zaokrouhlená) na 2 desetinná místa – stejně jako na volby.gov.cz.</li>
         <li><b>Volební účast</b> = vydané obálky / voliči v seznamu.</li>
+        <li><b>Vítěz v okrsku:</b> kandidátka s nejvíce hlasy v okrsku (u oblasti změn v celé oblasti); při shodě hlasů je okrsek šedý.</li>
         <li><b>Škála barev:</b> „společná pro stranu v čase“ má stejné maximum pro všechny volby kandidátek vedených touž stranou, takže se mapy různých let dají přímo porovnat.</li>
         <li><b>Vývoj v čase</b> propojuje kandidátky podle členských stran (číselník stran ČSÚ). Režim „Změna oproti…“ odečítá součet souvisejících kandidátek ve srovnávaných volbách.</li>
       </ul>
@@ -1140,6 +1243,7 @@ window.startApp = function (V2, R) {
   // ------------------------------------------------------------------ hlavní překreslení
   function update(hash = true) {
     ensureParty();
+    if (isWinner()) state.mode = "podil";
     if (state.mode === "zmena") { ensureCmp(); if (!state.cmp) state.mode = "podil"; }
     renderControls();
     restyle();
@@ -1151,7 +1255,8 @@ window.startApp = function (V2, R) {
   // Strana při startu: z odkazu, jinak „kotva“ předaná při přepnutí MČ (členské strany), jinak Piráti (kód 720).
   {
     const hp = new URLSearchParams(location.hash.slice(1));
-    if (!hp.get("strana") || !partyById(cur(), hp.get("strana"))) {
+    const hs = hp.get("strana");
+    if (hs !== WINNER && (!hs || !partyById(cur(), hs))) {
       const kotva = hp.get("kotva");
       const m = kotva ? bestMatch(cur(), { tagy: kotva.split(","), nazev: "" }) : null;
       const pir = cur().strany.find((p) => p.tagy.includes("720"));
@@ -1159,7 +1264,7 @@ window.startApp = function (V2, R) {
     }
   }
   // stav pro boot.js (přepnutí MČ zachová volby a stranu)
-  window.volbyStav = () => ({ eid: state.eid, tagy: state.anchor?.tagy || [] });
+  window.volbyStav = () => ({ eid: state.eid, tagy: state.anchor?.tagy || [], vitez: isWinner() });
   ensureParty();
   setAnchor();
   // if (cur().live) startLive(cur()); // živé výsledky (vypnuto)

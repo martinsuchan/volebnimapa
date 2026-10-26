@@ -63,7 +63,8 @@
       out.set("mc", k);
       // z celé Prahy (jen ZHMP) zpět do MČ: komunální volby zobrazit opět pro zastupitelstvo MČ
     if (st?.eid) out.set("volby", loaded === ALL && k !== ALL ? st.eid.replace(/^(kv\d{4})-zhmp$/, "$1-zmc") : st.eid);
-      if (st?.tagy?.length) out.set("kotva", st.tagy.join(","));
+      if (st?.vitez) out.set("strana", "vitez");
+      else if (st?.tagy?.length) out.set("kotva", st.tagy.join(","));
       for (const key of ["rezim", "srovnat", "skala"]) if (h.get(key)) out.set(key, h.get(key));
       history.replaceState(null, "", "#" + out.toString());
       location.reload();
